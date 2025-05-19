@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { browser, dev } from '$app/environment';
 	import { page } from '$app/stores';
-	import  logo  from '../../logos/S25_Wordmark.png';
+	import  logo  from '../logos/S25_Wordmark.png';
 
 
 	type TierItem = { src: string; name: string };
