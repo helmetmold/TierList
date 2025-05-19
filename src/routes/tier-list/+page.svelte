@@ -406,7 +406,6 @@
 				<img src="{logo}" alt="Creator Camp Logo" class=" mb-4">
 				<h1 class="text-4xl font-bold text-center mb-12 text-white leading-tight">Tier List Maker</h1>
 				<div class="flex gap-4">
-					
 					<input
 						type="text"
 						bind:value={$tierListName}
