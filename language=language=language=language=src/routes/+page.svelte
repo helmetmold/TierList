@@ -1,0 +1,1 @@
+let imageCategories: Record<string, { src: string; name: string }[]> = {}; 

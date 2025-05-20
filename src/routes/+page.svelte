@@ -4,6 +4,9 @@
 	import { browser, dev } from '$app/environment';
 	import { page } from '$app/stores';
 	import  logo  from '../logos/S25_Wordmark.png';
+	import { base } from '$app/paths';
+	import { createClient } from '@supabase/supabase-js';
+	import type { SupabaseClient } from '@supabase/supabase-js';
 
 
 	type TierItem = { src: string; name: string };
@@ -25,46 +28,113 @@
 	let draggedSource: string | null = null;
 	let draggedIndex: number | null = null;
 	let draggedSourceTierIndex: number | null = null;
-	let dragImageElement: HTMLImageElement | null = null;
 	let isOverBin = writable(false);
 
 	let tierListName = writable('');
 	let isEditing = writable(false);
-	let showContent = writable(false);
+	let showContent = writable(true);
 
-	// Import all images from the Images directory
-	const imageModules = import.meta.glob('/src/Images/**/*.*', { eager: true });
-	
-	// Process the imported images into categories
-	const imageCategories = Object.entries(imageModules).reduce((acc, [path, module]) => {
-		// Extract category name from path (folder name)
-		const category = path.split('/')[3]; // Adjust index based on your path structure
-		const imageName = path.split('/').pop()?.split('.')[0] || '';
+	// Initialize Supabase client with error handling
+	let supabase: SupabaseClient | undefined;
+
+	try {
+		const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+		const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 		
-		// Add spaces between capital letters
-		const formattedCategory = category.replace(/([A-Z])/g, ' $1').trim();
-		
-		if (!acc[formattedCategory]) {
-			acc[formattedCategory] = [];
+		if (!supabaseUrl || !supabaseKey) {
+			console.error('Supabase credentials not found in environment variables');
+		} else {
+			supabase = createClient(supabaseUrl, supabaseKey);
 		}
-		
-		acc[formattedCategory].push({
-			src: (module as { default: string }).default,
-			name: imageName
-		});
-		
-		return acc;
-	}, {} as Record<string, { src: string; name: string }[]>);
+	} catch (error) {
+		console.error('Error initializing Supabase client:', error);
+	}
 
+	// Define imageCategories as a writable store or a regular variable
+	let imageCategories: Record<string, { src: string; name: string }[]> = {};
+
+	// Reintroduce selectedCategory and showCategoryImages
 	let selectedCategory: string | null = null;
 	let showCategoryImages = false;
 
-	onMount(() => {
-		if (browser) {
-			tierListName.set(localStorage.getItem('tierListName') || '');
-			uploadedImages = JSON.parse(localStorage.getItem('uploadedImages') || '[]');
-			tiers.set(JSON.parse(localStorage.getItem('tiers') || JSON.stringify($tiers)));
+	// Add Supabase image fetching with error handling
+	async function fetchImagesFromSupabase() {
+		if (!supabase) {
+			console.error('Supabase client not initialized');
+			return {};
 		}
+
+		try {
+			// First, get the list of folders (categories)
+			const { data: folders, error: foldersError } = await supabase
+				.storage
+				.from('images')
+				.list('tier-list');
+
+			if (foldersError) {
+				console.error('Error fetching folders:', foldersError);
+				return {};
+			}
+
+			const supabaseImageCategories: Record<string, { src: string; name: string }[]> = {};
+
+			// For each folder, get its contents
+			for (const folder of folders) {
+				if (folder.name) {  // Skip if not a folder
+					const { data: images, error: imagesError } = await supabase
+						.storage
+						.from('images')
+						.list(`tier-list/${folder.name}`);
+
+					if (imagesError) {
+						console.error(`Error fetching images from ${folder.name}:`, imagesError);
+						continue;
+					}
+
+					// Initialize category array
+					supabaseImageCategories[folder.name] = [];
+
+					// Process each image in the folder
+					for (const image of images) {
+						if (image.name) {  // Skip if not a file
+							const { data: { publicUrl } } = supabase
+								.storage
+								.from('images')
+								.getPublicUrl(`tier-list/${folder.name}/${image.name}`);
+
+							supabaseImageCategories[folder.name].push({
+								src: publicUrl,
+								name: image.name.split('.')[0] // Remove file extension
+							});
+						}
+					}
+				}
+			}
+
+			return supabaseImageCategories;
+		} catch (error) {
+			console.error('Error in fetchImagesFromSupabase:', error);
+			return {};
+		}
+	}
+
+	onMount(async () => {
+			try {
+				tierListName.set(localStorage.getItem('tierListName') || '');
+				uploadedImages = JSON.parse(localStorage.getItem('uploadedImages') || '[]');
+				tiers.set(JSON.parse(localStorage.getItem('tiers') || JSON.stringify($tiers)));
+				
+				// Only fetch from Supabase if client is initialized
+				if (supabase) {
+					const supabaseImages = await fetchImagesFromSupabase();
+					imageCategories = { ...imageCategories, ...supabaseImages };
+
+				}
+
+
+			} catch (error) {
+				console.error('Error in onMount:', error);
+			}
 	});
 
 	$: if (browser) {
@@ -76,7 +146,6 @@
 	function handleFileUpload(event: Event) {
 		const files = (event.target as HTMLInputElement).files;
 		if (files) {
-			console.log(files);
 			for (const file of files) {
 				const reader = new FileReader();
 				reader.onload = (e) => {
@@ -215,7 +284,7 @@
 			const touch = event.changedTouches[0];
 			const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
 
-			console.log(draggedSource);
+			
 
 			if (dropTarget?.classList.contains('delete-bin')) {
 				handleBinDrop();
