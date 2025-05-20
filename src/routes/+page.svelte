@@ -32,7 +32,7 @@
 
 	let tierListName = writable('');
 	let isEditing = writable(false);
-	let showContent = writable(true);
+	let showContent = writable(false);
 
 	// Initialize Supabase client with error handling
 	let supabase: SupabaseClient | undefined;
@@ -57,10 +57,19 @@
 	let selectedCategory: string | null = null;
 	let showCategoryImages = false;
 
+	// Add loading state for categories
+	let loadingCategories = writable(true);
+
+	// Add this with your other store definitions
+	const loadingCategoryId = writable<string | null>(null);
+
 	// Add Supabase image fetching with error handling
 	async function fetchImagesFromSupabase() {
+		loadingCategories.set(true);
+		
 		if (!supabase) {
 			console.error('Supabase client not initialized');
+			loadingCategories.set(false);
 			return {};
 		}
 
@@ -73,6 +82,7 @@
 
 			if (foldersError) {
 				console.error('Error fetching folders:', foldersError);
+				loadingCategories.set(false);
 				return {};
 			}
 
@@ -111,9 +121,11 @@
 				}
 			}
 
+			loadingCategories.set(false);
 			return supabaseImageCategories;
 		} catch (error) {
 			console.error('Error in fetchImagesFromSupabase:', error);
+			loadingCategories.set(false);
 			return {};
 		}
 	}
@@ -153,10 +165,11 @@
 					const img = new Image();
 					img.onload = () => {
 						const canvas = document.createElement('canvas');
-						const maxSize = 500; // Maximum width or height
+						const maxSize = 96; // Maximum width or height (changed to 24)
 						let width = img.width;
 						let height = img.height;
 
+						// Calculate new dimensions while maintaining aspect ratio
 						if (width > height) {
 							if (width > maxSize) {
 								height *= maxSize / width;
@@ -174,21 +187,19 @@
 						const ctx = canvas.getContext('2d');
 						ctx?.drawImage(img, 0, 0, width, height);
 
-						const resizedImageData = canvas.toDataURL('image/jpeg', 0.7); // Adjust quality if needed
-						const newImage = { src: resizedImageData, name: file.name };
-
-						// Check if adding this image would exceed localStorage quota
-						try {
-							const testStorage = JSON.stringify([...uploadedImages, newImage]);
-							localStorage.setItem('test', testStorage);
-							localStorage.removeItem('test');
-							
-							// If no error, add the image
-							uploadedImages = [...uploadedImages, newImage];
-						} catch (error) {
-							console.error('Storage limit exceeded. Cannot add more images.');
-							alert('Cannot add more images. Storage limit exceeded.');
-						}
+						// Convert to WebP with quality setting
+						canvas.toBlob((blob) => {
+							if (blob) {
+								const newImage = { 
+									src: URL.createObjectURL(blob), 
+									name: file.name,
+									originalSize: file.size,
+									optimizedSize: blob.size
+								};
+								uploadedImages = [...uploadedImages, newImage];
+								console.log(`Reduced from ${file.size/1024}KB to ${blob.size/1024}KB`);
+							}
+						}, 'image/webp', 0.8); // Use WebP with 80% quality
 					};
 					img.src = imageData;
 				};
@@ -221,7 +232,7 @@
 
 		const imgElement = event.target as HTMLImageElement;
 		imgElement.setAttribute('dragging', 'true');
-		imgElement.classList.add('fixed', 'max-w-32', 'max-h-32', 'object-contain', 'pointer-events-none', 'z-50', 'cursor-grabbing');
+		imgElement.classList.add('fixed', 'max-w-24', 'max-h-24', 'object-contain', 'pointer-events-none', 'z-50', 'cursor-grabbing');
 		updateDragImagePosition(touch.clientX, touch.clientY, imgElement);
 	}
 
@@ -259,11 +270,11 @@
 			if (dropTarget?.closest('.tier')) {
 				const tierElement = dropTarget.closest('.tier');
 				tierElement?.classList.remove('bg-neutral-800');
-				tierElement?.classList.add('h-32', 'bg-neutral-600', 'z-50');
+				tierElement?.classList.add('h-24', 'bg-neutral-600', 'z-50');
 			} else {
 				// Remove h-32 from all tiers when not dragging over any tier
 				document.querySelectorAll('.tier').forEach(tier => {
-					tier.classList.remove('h-32', 'bg-neutral-600', 'z-50');
+					tier.classList.remove('h-24', 'bg-neutral-600', 'z-50');
 					tier.classList.add('bg-neutral-800');
 				});
 			}
@@ -351,6 +362,7 @@
 			
 		}
 
+
 		// Add to destination
 		if (tierIndex !== null && tierIndex >= 0) {
 			
@@ -407,7 +419,7 @@
 		document.querySelectorAll('img[dragging="true"]').forEach(img => {
 			const imageElement = img as HTMLElement;
 			imageElement.removeAttribute('dragging');
-			imageElement.classList.remove('fixed', 'w-32', 'h-32', 'pointer-events-none', 'z-50', 'cursor-grabbing');
+			imageElement.classList.remove('fixed', 'w-24', 'h-24', 'pointer-events-none', 'z-50', 'cursor-grabbing');
 			imageElement.style.left = '';
 			imageElement.style.top = '';
 			imageElement.style.transform = '';
@@ -466,6 +478,16 @@
 	function addCategoryImage(image: { src: string; name: string }) {
 		uploadedImages = [...uploadedImages, image];
 	}
+
+	// In loadCategoryImages function
+	async function loadCategoryImages(category: string) {
+		// ...
+		loadingCategoryId.set(category);
+		// ...
+		
+		// At the end of the function
+		loadingCategoryId.set(null);
+	}
 </script>
 
 <div class="flex flex-col gap-5 p-6 sm:p-8 bg-neutral-900 min-h-screen font-['DM_Sans']">
@@ -518,10 +540,10 @@
 					e.preventDefault();
 					e.stopPropagation();
 					document.querySelectorAll('.tier-container').forEach(tier => {
-						tier.classList.remove('bg-neutral-800', 'h-32', 'border-2', 'border-dashed', 'border-white');
+						tier.classList.remove('bg-neutral-800', 'h-24', 'border-2', 'border-dashed', 'border-white');
 					});
 					
-					e.currentTarget.classList.add( 'bg-neutral-800', 'h-32', 'border-2', 'border-dashed', 'border-white');
+					e.currentTarget.classList.add( 'bg-neutral-800', 'h-24', 'border-2', 'border-dashed', 'border-white');
 
 				}}
 				on:dragleave={(e) => {
@@ -572,34 +594,67 @@
 		{/each}
 		<div class="text-white">
 			<div class="mb-6 category-images rounded-lg overflow-hidden">
-				<div class="flex flex-wrap gap-2 mb-4">
-					{#each Object.keys(imageCategories) as category}
-						<button
-							on:click={() => selectCategory(category)}
-							class="px-4 py-2 text-white rounded-lg transition-colors {selectedCategory === category ? 'bg-[#28B9EB] hover:bg-[#219EC9]' : 'bg-neutral-800 hover:bg-neutral-700'}"
-						>
-							{category}
-						</button>
-					{/each}
+				<div class="flex flex-wrap gap-2 mb-4" 
+				>
+					{#if $loadingCategories}
+						<!-- Skeleton loaders for categories -->
+						{#each Array(10) as _}
+							<div class="h-10 w-24 rounded-lg skeleton"></div>
+						{/each}
+					{:else}
+						{#each Object.entries(imageCategories) as [category]}
+							<button
+								on:click={() => selectCategory(category)}
+								class="px-4 py-2 text-white rounded-lg transition-colors {selectedCategory === category ? 'bg-[#28B9EB] hover:bg-[#219EC9]' : 'bg-neutral-800 hover:bg-neutral-700'}"
+							>
+								{category}
+							</button>
+						{/each}
+					{/if}
 				</div>
 
 				{#if selectedCategory}
-					<div class="flex flex-wrap gap-2">
-						{#each imageCategories[selectedCategory] as image, index}
-							<div class="relative aspect-square w-32 h-32 z-100">
-								<img
-									src={image.src}
-									alt={image.name}
-									class="w-full h-full object-contain rounded-lg cursor-pointer bg-white"
-									draggable="true"
-									on:dragstart={(event) => handleDragStart(event, image, 'category', index)}
-									on:dragend={handleDragEnd}
-									on:touchstart={(event) => handleTouchStart(event, image, 'category', index)}
-									on:touchmove={handleTouchMove}
-									on:touchend={handleTouchEnd}
-								/>
+					<div class="flex flex-wrap gap-2 category-images-container"
+					role="list"
+				on:dragover={(e) => {
+					
+					e.currentTarget.classList.add( 'bg-neutral-800', 'border-2', 'border-dashed', 'border-white');
+
+				}}
+
+				on:dragleave={(e) => {
+					e.currentTarget.classList.remove( 'bg-neutral-800', 'border-2', 'border-dashed', 'border-white');
+
+				}}
+					>
+						{#if imageCategories[selectedCategory] && imageCategories[selectedCategory].length > 0}
+							{#each imageCategories[selectedCategory] as image, index}
+								<div class="relative aspect-square w-24 h-24 bg-neutral-800 rounded-lg"
+								>
+									<img
+										src={image.src}
+										alt={image.name}
+										loading="lazy"
+										class="w-full h-full object-contain rounded-lg cursor-pointer"
+										draggable="true"
+										on:dragstart={(event) => handleDragStart(event, image, 'category', index)}
+										on:dragend={handleDragEnd}
+										on:touchstart={(event) => handleTouchStart(event, image, 'category', index)}
+										on:touchmove={handleTouchMove}
+										on:touchend={handleTouchEnd}
+									/>
+								</div>
+							{/each}
+						{:else if $loadingCategoryId === selectedCategory}
+							<!-- Skeleton loaders with shimmer effect -->
+							{#each Array(12) as _}
+								<div class="w-24 h-24 rounded-lg skeleton"></div>
+							{/each}
+						{:else}
+							<div class="w-full text-center py-6 text-neutral-400">
+								No images found in this category
 							</div>
-						{/each}
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -607,7 +662,7 @@
 				<div class="mb-6">
 					<div class="flex flex-wrap gap-2">
 						{#each uploadedImages as image, index}
-							<div class="relative aspect-square w-32 h-32">
+							<div class="relative aspect-square w-24 h-24">
 								<img
 									src={image.src}
 									alt={image.name}
@@ -648,3 +703,20 @@
 	{/if}
 	{/if}
 </div>
+
+<style>
+	@keyframes shimmer {
+		0% {
+			background-position: -200% 0;
+		}
+		100% {
+			background-position: 200% 0;
+		}
+	}
+	
+	.skeleton {
+		background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+		background-size: 200% 100%;
+		animation: shimmer 1.5s infinite;
+	}
+</style>
